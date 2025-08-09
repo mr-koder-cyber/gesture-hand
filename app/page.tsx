@@ -50,7 +50,7 @@ export default function GestureApp() {
     );
 
     landmarkerRef.current = await HandLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: 'hand_landmarker.task' },
+      baseOptions: { modelAssetPath: '/models/hand_landmarker.task' },
       numHands: 1,
       runningMode: 'VIDEO', // tetap VIDEO walau dari webcam
     });
