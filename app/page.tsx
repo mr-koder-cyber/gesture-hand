@@ -15,7 +15,7 @@ export default function GestureApp() {
   const videoRef = useRef<VideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const landmarkerRef = useRef<HandLandmarker | null>(null);
-  const cameraActiveRef = useRef(false); // ref agar loop baca status terbaru
+  const cameraActiveRef = useRef(false);
 
   const [message, setMessage] = useState('Tunggu gesture...');
   const [cameraStatus, setCameraStatus] = useState(
@@ -43,7 +43,6 @@ export default function GestureApp() {
   }, []);
 
   const startLandmarker = useCallback(async () => {
-    // Pastikan path wasm sesuai
     const vision = await FilesetResolver.forVisionTasks(
       'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
     );
@@ -69,18 +68,22 @@ export default function GestureApp() {
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
+      // mirror video
       ctx.save();
       ctx.scale(-1, 1);
       ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
       ctx.restore();
 
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.fillRect(0, 0, canvas.width, 70);
+      // overlay teks
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(0, canvas.height / 2 - 40, canvas.width, 80);
       ctx.fillStyle = '#fff';
-      ctx.font = 'bold 28px Arial';
+      ctx.font = 'bold 32px Arial';
       ctx.textAlign = 'center';
-      ctx.fillText(message, canvas.width / 2, 45);
+      ctx.textBaseline = 'middle';
+      ctx.fillText(message, canvas.width / 2, canvas.height / 2);
 
+      // gambar titik-titik jari
       if (result.landmarks && result.landmarks.length > 0) {
         const lm = result.landmarks[0];
         const tips = [4, 8, 12, 16, 20];
@@ -94,6 +97,7 @@ export default function GestureApp() {
           ctx.fill();
         });
 
+        // hitung jari terangkat
         let count = 0;
         if (lm[4].y < lm[3].y) count++;
         if (lm[8].y < lm[6].y) count++;
@@ -147,39 +151,65 @@ export default function GestureApp() {
   }, [stopCamera]);
 
   return (
-    <div style={{ textAlign: 'center', padding: 20 }}>
+    <div
+      style={{
+        height: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#111',
+        color: '#fff',
+        textAlign: 'center',
+        padding: 20,
+      }}
+    >
       <h1>Gesture Message Detection</h1>
-      <div>{message}</div>
-      <div style={{ marginTop: 10 }}>
+      <div style={{ marginBottom: 10 }}>{message}</div>
+      <div style={{ marginBottom: 10 }}>
         <button
           onClick={startCamera}
           disabled={cameraActiveRef.current}
         >
-          Aktifkan Kamera
+          🎥 Aktifkan Kamera
         </button>
         <button
           onClick={stopCamera}
           disabled={!cameraActiveRef.current}
+          style={{ marginLeft: 10 }}
         >
           ⏹ Matikan Kamera
         </button>
       </div>
-      <div>Status: {cameraStatus}</div>
+      <div style={{ marginBottom: 10 }}>Status: {cameraStatus}</div>
       {error && <div style={{ color: 'red' }}>Error: {error}</div>}
-      <video
-        ref={videoRef}
-        className="hidden"
-        playsInline
-        muted
-      />
-      <canvas
-        ref={canvasRef}
+
+      <div
         style={{
-          marginTop: 10,
-          backgroundColor: cameraActiveRef.current ? 'transparent' : '#ccc',
+          position: 'relative',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
           maxWidth: '100%',
         }}
-      />
+      >
+        <video
+          ref={videoRef}
+          style={{
+            display: 'none', // disembunyikan karena canvas yang tampil
+          }}
+          playsInline
+          muted
+        />
+        <canvas
+          ref={canvasRef}
+          style={{
+            backgroundColor: cameraActiveRef.current ? 'transparent' : '#333',
+            borderRadius: 10,
+            maxWidth: '100%',
+          }}
+        />
+      </div>
     </div>
   );
 }
