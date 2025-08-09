@@ -1,14 +1,17 @@
-'use client';
+import React, { useEffect, useRef, useState } from 'react';
 
-import { useEffect, useRef, useState } from 'react';
+interface VideoElement extends HTMLVideoElement {
+  srcObject: MediaStream | null;
+}
 
-export default function Home() {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+export default function GestureApp() {
+  const videoRef = useRef<VideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [message, setMessage] = useState<string>('Tunggu gesture...');
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [cameraStatus, setCameraStatus] = useState<string>('Initializing...');
   const [error, setError] = useState<string>('');
+  const [fingerCount, setFingerCount] = useState<number>(0);
 
   const messages: string[] = [
     'Salma Fauziah',
@@ -18,8 +21,7 @@ export default function Home() {
     'Tehnik',
   ];
 
-  let lastGesture = 0;
-  let hands: any = null;
+  const [simulatedGesture, setSimulatedGesture] = useState<number>(0);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -29,188 +31,118 @@ export default function Home() {
       try {
         setCameraStatus('Meminta izin kamera...');
 
-        stream = await navigator.mediaDevices.getUserMedia({
+        const constraints: MediaStreamConstraints = {
           video: {
-            width: 640,
-            height: 480,
+            width: { ideal: 640 },
+            height: { ideal: 480 },
             facingMode: 'user',
           },
-        });
-
-        if (!videoRef.current) return;
-
-        videoRef.current.srcObject = stream;
-
-        videoRef.current.onloadedmetadata = () => {
-          if (videoRef.current) {
-            videoRef.current.play();
-            setCameraStatus('Kamera aktif - Loading hand detection...');
-            initializeMediaPipe();
-          }
         };
-      } catch (err: any) {
+
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+
+          videoRef.current.onloadedmetadata = () => {
+            if (videoRef.current) {
+              videoRef.current
+                .play()
+                .then(() => {
+                  setCameraStatus(
+                    'Kamera aktif - Gunakan tombol untuk test gesture'
+                  );
+                  setIsLoading(false);
+                  startVideoProcessing();
+                })
+                .catch((err) => {
+                  const errorMessage =
+                    err instanceof Error ? err.message : 'Unknown error';
+                  console.error('Play error:', err);
+                  setError(`Video play error: ${errorMessage}`);
+                });
+            }
+          };
+        }
+      } catch (err: unknown) {
+        const errorMessage =
+          err instanceof Error ? err.message : 'Unknown error';
         console.error('Camera error:', err);
-        setError(`Camera Error: ${err.message}`);
+        setError(`Camera Error: ${errorMessage}`);
         setCameraStatus('Gagal mengakses kamera');
         setIsLoading(false);
       }
     };
 
-    const initializeMediaPipe = async () => {
-      try {
-        const { Hands } = await import('@mediapipe/hands');
-        const drawingUtils = await import('@mediapipe/drawing_utils');
+    const startVideoProcessing = () => {
+      const processFrame = () => {
+        if (videoRef.current && canvasRef.current && !videoRef.current.paused) {
+          const canvas = canvasRef.current;
+          const ctx = canvas.getContext('2d');
+          const video = videoRef.current;
 
-        hands = new Hands({
-          locateFile: (file: string) =>
-            `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
-        });
+          if (!ctx || !video) return;
 
-        hands.setOptions({
-          maxNumHands: 1,
-          modelComplexity: 1,
-          minDetectionConfidence: 0.7,
-          minTrackingConfidence: 0.5,
-        });
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 480;
 
-        hands.onResults((results: any) => {
-          drawResults(results, drawingUtils);
-        });
+          ctx.save();
+          ctx.scale(-1, 1);
+          ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+          ctx.restore();
 
-        setCameraStatus('Hand detection aktif!');
-        setIsLoading(false);
-        processFrame();
-      } catch (err: any) {
-        console.error('MediaPipe error:', err);
-        setError(`MediaPipe Error: ${err.message}`);
-        setCameraStatus('Error loading hand detection');
-        setIsLoading(false);
-      }
-    };
-
-    const processFrame = async () => {
-      if (!videoRef.current || !hands) return;
-
-      try {
-        await hands.send({ image: videoRef.current });
-      } catch (err) {
-        console.error('Frame processing error:', err);
-      }
-
-      animationId = requestAnimationFrame(processFrame);
-    };
-
-    const drawResults = (results: any, drawingUtils: any) => {
-      if (!canvasRef.current) return;
-
-      const canvas = canvasRef.current;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      ctx.save();
-      ctx.scale(-1, 1);
-      ctx.drawImage(
-        results.image,
-        -canvas.width,
-        0,
-        canvas.width,
-        canvas.height
-      );
-      ctx.restore();
-
-      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-        for (const landmarks of results.multiHandLandmarks) {
-          if (drawingUtils.HAND_CONNECTIONS) {
-            drawingUtils.drawConnectors(
-              ctx,
-              landmarks,
-              drawingUtils.HAND_CONNECTIONS,
-              {
-                color: '#00FF00',
-                lineWidth: 3,
-              }
-            );
-          } else {
-            drawHandConnections(ctx, landmarks);
-          }
-
-          drawingUtils.drawLandmarks(ctx, landmarks, {
-            color: '#FF0000',
-            lineWidth: 2,
-            radius: 3,
-          });
-
-          const gesture = detectGesture(landmarks);
-          if (gesture && gesture !== lastGesture) {
-            lastGesture = gesture;
-            if (gesture >= 1 && gesture <= 5) {
-              setMessage(messages[gesture - 1]);
-            }
-          }
+          drawOverlay(ctx, canvas);
         }
-      }
+        animationId = requestAnimationFrame(processFrame);
+      };
+
+      processFrame();
+    };
+
+    const drawOverlay = (
+      ctx: CanvasRenderingContext2D,
+      canvas: HTMLCanvasElement
+    ) => {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillRect(0, 0, canvas.width, 60);
 
       ctx.fillStyle = '#FFFFFF';
       ctx.strokeStyle = '#000000';
       ctx.font = 'bold 24px Arial';
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 2;
+
       const text = message;
       const textWidth = ctx.measureText(text).width;
       const x = (canvas.width - textWidth) / 2;
-      const y = 50;
+      const y = 40;
 
       ctx.strokeText(text, x, y);
       ctx.fillText(text, x, y);
+
+      ctx.fillStyle = '#4CAF50';
+      ctx.font = 'bold 16px Arial';
+      ctx.fillText(`Fingers: ${fingerCount}`, 20, canvas.height - 20);
+
+      if (fingerCount > 0) {
+        drawHandSimulation(ctx, canvas);
+      }
     };
 
-    const drawHandConnections = (
+    const drawHandSimulation = (
       ctx: CanvasRenderingContext2D,
-      landmarks: any[]
+      canvas: HTMLCanvasElement
     ) => {
-      const connections = [
-        [0, 1],
-        [1, 2],
-        [2, 3],
-        [3, 4],
-        [0, 5],
-        [5, 6],
-        [6, 7],
-        [7, 8],
-        [5, 9],
-        [9, 10],
-        [10, 11],
-        [11, 12],
-        [9, 13],
-        [13, 14],
-        [14, 15],
-        [15, 16],
-        [13, 17],
-        [17, 18],
-        [18, 19],
-        [19, 20],
-        [0, 17],
-      ];
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
 
-      ctx.strokeStyle = '#00FF00';
-      ctx.lineWidth = 2;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.fillRect(centerX - 50, centerY - 20, 100, 80);
 
-      connections.forEach(([start, end]) => {
-        const startPoint = landmarks[start];
-        const endPoint = landmarks[end];
-
-        ctx.beginPath();
-        ctx.moveTo(
-          startPoint.x * canvasRef.current!.width,
-          startPoint.y * canvasRef.current!.height
-        );
-        ctx.lineTo(
-          endPoint.x * canvasRef.current!.width,
-          endPoint.y * canvasRef.current!.height
-        );
-        ctx.stroke();
-      });
+      ctx.fillStyle = 'rgba(0, 255, 0, 0.6)';
+      for (let i = 0; i < fingerCount; i++) {
+        const fingerX = centerX - 40 + i * 20;
+        ctx.fillRect(fingerX, centerY - 60, 15, 40);
+      }
     };
 
     if (typeof window !== 'undefined') {
@@ -225,142 +157,167 @@ export default function Home() {
         stream.getTracks().forEach((track) => track.stop());
       }
     };
-  }, []);
+  }, [message, fingerCount]);
 
-  function detectGesture(landmarks: any[]): number {
-    let fingersUp = 0;
-
-    const tips = [8, 12, 16, 20];
-    const pips = [6, 10, 14, 18];
-    tips.forEach((tip, i) => {
-      if (landmarks[tip].y < landmarks[pips[i]].y) {
-        fingersUp++;
-      }
-    });
-
-    if (landmarks[4].x > landmarks[3].x) {
-      fingersUp++;
+  const handleGestureTest = (gestureNum: number) => {
+    setFingerCount(gestureNum);
+    if (gestureNum >= 1 && gestureNum <= 5) {
+      setMessage(messages[gestureNum - 1]);
+    } else {
+      setMessage('Tunggu gesture...');
     }
-
-    return fingersUp;
-  }
+  };
 
   const handleRetry = () => {
     setError('');
     setIsLoading(true);
+    setCameraStatus('Initializing...');
     window.location.reload();
   };
 
   if (isLoading) {
     return (
-      <div style={{ textAlign: 'center', padding: 20 }}>
-        <h1>🎯 Gesture Message</h1>
-        <p style={{ fontSize: '18px', margin: '20px 0' }}>{cameraStatus}</p>
-        {error && (
-          <div
-            style={{
-              background: '#ffebee',
-              color: '#c62828',
-              padding: 15,
-              borderRadius: 5,
-              margin: 20,
-              border: '1px solid #ef5350',
-            }}
-          >
-            <p>
-              <strong>Error:</strong> {error}
-            </p>
-            <div style={{ marginTop: 15 }}>
-              <h4>Solusi yang bisa dicoba:</h4>
-              <ul style={{ textAlign: 'left', display: 'inline-block' }}>
-                <li>Pastikan menggunakan HTTPS</li>
-                <li>Refresh halaman dan klik "Allow" untuk kamera</li>
-                <li>
-                  Install dependencies: npm install @mediapipe/hands
-                  @mediapipe/drawing_utils
-                </li>
-                <li>Tutup aplikasi lain yang menggunakan kamera</li>
-              </ul>
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-6">
+        <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
+          <h1 className="text-2xl font-bold text-center text-gray-800 mb-6">
+            Gesture Message
+          </h1>
+
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+            <p className="text-lg mb-4 text-gray-700">{cameraStatus}</p>
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+              <h3 className="font-semibold text-red-800 mb-2">Error:</h3>
+              <p className="text-red-700 mb-3">{error}</p>
+
+              <div className="text-sm text-red-600 mb-4">
+                <h4 className="font-semibold mb-2">Solusi yang bisa dicoba:</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  <li>Pastikan menggunakan HTTPS atau localhost</li>
+                  <li>Refresh halaman dan klik "Allow" untuk kamera</li>
+                  <li>Tutup aplikasi lain yang menggunakan kamera</li>
+                  <li>Coba browser yang berbeda (Chrome/Firefox)</li>
+                </ul>
+              </div>
+
               <button
                 onClick={handleRetry}
-                style={{
-                  padding: '10px 20px',
-                  background: '#1976d2',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: 5,
-                  cursor: 'pointer',
-                  marginTop: 10,
-                }}
+                className="w-full bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded transition-colors"
               >
                 Coba Lagi
               </button>
             </div>
-          </div>
-        )}
-        <div style={{ fontSize: '14px', color: '#666', marginTop: 20 }}>
-          <p>💡 Loading MediaPipe hand detection...</p>
+          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div style={{ textAlign: 'center', padding: 20 }}>
-      <h1>🎯 Gesture Message</h1>
-      <p
-        style={{
-          fontSize: '2rem',
-          fontWeight: 'bold',
-          color: '#333',
-          marginBottom: 20,
-          minHeight: '60px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        {message}
-      </p>
+    <div className="min-h-screen bg-gray-100 p-4">
+      <div className="max-w-4xl mx-auto">
+        <h1 className="text-3xl font-bold text-center text-gray-800 mb-6">
+          Gesture Message Detection
+        </h1>
 
-      <div style={{ position: 'relative', display: 'inline-block' }}>
-        <video
-          ref={videoRef}
-          style={{ display: 'none' }}
-          playsInline
-          muted
-          autoPlay
-        />
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <div className="text-center">
+            <p className="text-3xl font-bold text-blue-600 min-h-12 flex items-center justify-center">
+              {message}
+            </p>
+          </div>
+        </div>
 
-        <canvas
-          ref={canvasRef}
-          width="640"
-          height="480"
-          style={{
-            border: '3px solid #2196F3',
-            borderRadius: '15px',
-            boxShadow: '0 6px 20px rgba(0,0,0,0.15)',
-            background: '#000',
-          }}
-        />
-      </div>
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <div className="relative flex justify-center">
+            <video
+              ref={videoRef}
+              className="hidden"
+              playsInline
+              muted
+              autoPlay
+            />
 
-      <div style={{ marginTop: 20, fontSize: '14px', color: '#666' }}>
-        <p>
-          📹 Status:{' '}
-          <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>
-            {cameraStatus}
-          </span>
-        </p>
-        <p>Gesture Guide:</p>
-        <div
-          style={{ display: 'inline-block', textAlign: 'left', marginTop: 10 }}
-        >
-          <p>1 jari = Salma Fauziah</p>
-          <p>2 jari = kelompok 54 Purwa</p>
-          <p>3 jari = npm 257006111020</p>
-          <p>4 jari = Informatika</p>
-          <p>5 jari = Tehnik</p>
+            <canvas
+              ref={canvasRef}
+              className="border-4 border-blue-400 rounded-xl shadow-lg bg-black max-w-full h-auto"
+              style={{ maxWidth: '640px', maxHeight: '480px' }}
+            />
+          </div>
+
+          <div className="text-center mt-4">
+            <p className="text-sm text-gray-600">
+              Status:{' '}
+              <span className="text-green-600 font-semibold">
+                {cameraStatus}
+              </span>
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <h3 className="text-xl font-semibold text-gray-800 mb-4 text-center">
+            Test Gesture (Klik untuk simulasi)
+          </h3>
+
+          <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
+            {[1, 2, 3, 4, 5].map((num) => (
+              <button
+                key={num}
+                onClick={() => handleGestureTest(num)}
+                className={`py-3 px-4 rounded-lg font-semibold transition-colors ${
+                  fingerCount === num
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
+                }`}
+              >
+                {num} Jari
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => handleGestureTest(0)}
+            className={`w-full mt-3 py-2 px-4 rounded-lg font-semibold transition-colors ${
+              fingerCount === 0
+                ? 'bg-red-500 text-white'
+                : 'bg-gray-200 hover:bg-gray-300 text-gray-800'
+            }`}
+          >
+            Reset
+          </button>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-lg p-6">
+          <h3 className="text-xl font-semibold text-gray-800 mb-4 text-center">
+            Panduan Gesture
+          </h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {messages.map((msg, index) => (
+              <div
+                key={index}
+                className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg"
+              >
+                <div className="bg-blue-500 text-white rounded-full w-8 h-8 flex items-center justify-center font-semibold">
+                  {index + 1}
+                </div>
+                <span className="text-gray-700">{msg}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+            <p className="text-sm text-yellow-800">
+              <strong>Catatan:</strong> Ini adalah versi demo. Gunakan tombol di
+              atas untuk mensimulasikan deteksi gesture. Untuk implementasi
+              MediaPipe yang sesungguhnya, diperlukan setup server yang lebih
+              kompleks.
+            </p>
+          </div>
         </div>
       </div>
     </div>
