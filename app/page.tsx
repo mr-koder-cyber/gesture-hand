@@ -47,7 +47,7 @@ export default function GestureApp() {
     landmarkerRef.current = await HandLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: 'hand_landmarker.task' },
       numHands: 1,
-      runningMode: 'LIVE_STREAM',
+      runningMode: 'VIDEO',
     });
   }, []);
 
@@ -110,13 +110,14 @@ export default function GestureApp() {
       await startLandmarker();
       // Mulai loop streaming
       const onFrame = async () => {
-        await landmarkerRef.current?.detectForVideo(
+        const result = await landmarkerRef.current?.detectForVideo(
           videoRef.current!,
-          performance.now(),
-          onResults
+          performance.now()
         );
+        if (result) onResults(result);
         if (cameraActive) requestAnimationFrame(onFrame);
       };
+
       onFrame();
     } catch (e: any) {
       stopCamera();
