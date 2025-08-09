@@ -136,13 +136,13 @@ export default function GestureApp() {
         onClick={startCamera}
         disabled={cameraActive}
       >
-        🎥 Aktifkan Kamera
+        Aktifkan Kamera
       </button>
       <button
         onClick={stopCamera}
         disabled={!cameraActive}
       >
-        ⏹️ Matikan Kamera
+        ⏹Matikan Kamera
       </button>
       <div>Status: {cameraStatus}</div>
       {error && <div>Error: {error}</div>}
